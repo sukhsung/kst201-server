@@ -1,65 +1,134 @@
 import { APTManager } from "./APTManager.js";
+import {HW, MOT} from "./util/APT_MGMSG.js"
+import { parseStatus } from "./util/APT_STATUS.js";
+import { sleep, hdr_short, hdr_long, hdr_w_data, wordLE, longLE } from "./util/util.js";
 
-const MOT_MOVE_HOME = 0X0443
-const MOT_MOVE_HOMED = 0X0444
-const MOT_MOVE_ABSOLUTE = 0x0453
-const MOT_MOVE_COMPLETED = 0x0464
-const MOT_MOVE_STOP = 0x0465
-const MOT_MOVE_STOPPED = 0x0466
+
+const USB = 0x50;
+const HOST = 0x01;
 
 export class KST201Manager extends APTManager {
-  constructor( verbose = 2) {
-    super( verbose);
+  constructor(verbose = 2) {
+    super(verbose);
+
+
+    this.MOVE_HOMED = hdr_short( MOT.MOVE_HOMED, 1, 0, HOST, USB);
+    this.MOVE_COMPLETED = hdr_long( MOT.MOVE_COMPLETED, 14, HOST, USB);
+    this.GET_STATUSUPDATE = hdr_long( MOT.GET_STATUSUPDATE, 28, HOST, USB);
+    // this.MOVE_STOPPED = hdrWithData( MOT.MOVE_STOPPED, 14, HOST, USB);
+
   }
 
-  async move_stop(  ) {
+  async _process_regular(){
+    return
+  }
+
+  async _process_request(req) {
+    const { cmd, data } = req;
+    this.log(
+      `Process: ${cmd} ${data !== undefined ? JSON.stringify(data) : ""}`,
+    );
+    await this.purge()
     try {
-      this.log("Stopping")
-      await this.dev.write(this.hdrOnly(MOT_MOVE_STOP, 1, 1));
-      // await this.waitFor([MOT_MOVE_STOPPED], 60000);
-      return true
+      if (cmd == "get_status") {
+        await this.get_status();
+      } else if (cmd === "move_home") {
+        await this.move_home();
+      } else if (cmd === "move_absolute") {
+        await this.move_absolute(data);
+      } else if (cmd === "move_relative") {
+        await this.move_relative(data);
+      } else if (cmd === "move_stop") {
+        await this.move_stop();
+      } else {
+        this.log("Unknown Command: " + cmd);
+      }
     } catch (e) {
-      console.log(e.message);
-      return false
+      console.error("process_request error:", e);
     }
   }
 
-  async move_absolute( count ) {
+  async get_status() {
     try {
-      this.log("Moving")
-      const absData = Buffer.concat([this.wordLE(1), this.longLE(count)]); // [Chan WORD][AbsPos LONG]
-      await this.dev.write(this.hdrWithData(MOT_MOVE_ABSOLUTE, absData));
-      // await this.waitFor([MOT_MOVE_COMPLETED], 60000);
-      return true
+      await this.write_short(MOT.REQ_STATUSUPDATE);
+      const resp = await this.waitUntil(this.GET_STATUSUPDATE, 60_000);
+
+      if (resp) {
+        const data = await this.readExact(28, 200);
+        const pos = data.readInt32LE(2);
+        const status = parseStatus(data.readUInt32LE(10));
+        status.position = pos;
+        console.log(status)
+        this.emit("send", status);
+      }
+      else {
+        console.log( hdr)
+      }
     } catch (e) {
-      console.log(e.message);
-      return false
+      console.log("Error: " + e.message);
+      return -1;
+    }
+  }
+
+  async move_stop() {
+    try {
+      this.log("Stopping");
+      await this.write_short(MOT.MOVE_STOP, 1, 1);
+    } catch (e) {
+      console.log("Error: " + e.message);
+      return -1;
+    }
+  }
+
+  async move_relative(count) {
+    try {
+      this.log("Move Relative: " + count);
+      const data = Buffer.concat([wordLE(1), longLE(count)]); // [Chan WORD][AbsPos LONG]
+      await this.write_long(MOT.MOVE_RELATIVE, data);
+      const resp = await this.waitUntil(this.MOVE_COMPLETED, 30_000);
+      if ( resp ){
+        await this.readExact(14,10_000)
+        this.get_status()
+      }
+    } catch (e) {
+      console.log("Error: " + e.message);
+      return -1;
+    }
+  }
+
+  async move_absolute(count) {
+    try {
+      this.log("Move Absolute: " + count);
+      const data = Buffer.concat([wordLE(1), longLE(count)]); // [Chan WORD][AbsPos LONG]
+      await this.write_long(MOT.MOVE_ABSOLUTE, data);
+      const resp = await this.waitUntil(this.MOVE_COMPLETED, 30_000);
+      if ( resp ){
+        await this.readExact(14)
+        this.get_status()
+      }
+    } catch (e) {
+      console.log("Error: " + e.message);
+      return -1;
     }
   }
 
   async move_home() {
     try {
-      this.log("Homing")
-      await this.dev.write(this.hdrOnly(MOT_MOVE_HOME));
-      // await this.waitFor([MOT_MOVE_HOMED], 60000);
-      return true
+      await this.write_short(MOT.MOVE_HOME);
+      const resp = await this.waitUntil(this.MOVE_HOMED, 60_000)
+      if ( resp ){
+        this.get_status()
+      }
     } catch (e) {
-      console.log(e.message);
-      return false
+      console.log("Error: " + e.message);
+      return false;
     }
-  }
-  
-  async _init_dev() {
-    return
   }
 
   async _dev_check() {
     try {
-      // REQ HW INFO -> expect GET (0x0006) with ~84B payload
-      console.log("[apt] HW_REQ_INFO (0x0005)");
-      await this.dev.write(this.hdrOnly(0x0005));
-      const info = await this.recvOne(1000);
-      const serial = info.data.readInt32LE(0);
+      const serial = await this.get_serial();
+      console.log("SERIAL: "+serial)
       if (serial === this.dev_info.SERIAL) {
         this.log("dev_check passed");
         return true;
@@ -68,8 +137,21 @@ export class KST201Manager extends APTManager {
         return false;
       }
     } catch (e) {
-      console.log(e.message);
+      console.log("Error: " + e.message);
       return false;
+    }
+  }
+
+  async get_serial() {
+    await this.purge();
+    await this.write_short(HW.REQ_INFO);
+
+    const hdr = await this.readExact(6);
+    if (hdr.readInt16LE(0) === HW.GET_INFO) {
+      const data = await this.readExact(84);
+      return data.readInt32LE(0);
+    } else {
+      return -1;
     }
   }
 

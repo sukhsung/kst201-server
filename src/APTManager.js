@@ -1,5 +1,7 @@
 import d2xx from "ftdi-d2xx";
 import { EventEmitter } from "node:events";
+import { HW } from "./util/APT_MGMSG.js";
+import { sleep, hdr_short, hdr_long, hdr_w_data, wordLE, longLE } from "./util/util.js";
 
 //CONSTANTS
 //d2xx constants
@@ -8,6 +10,7 @@ const FT_STOP_BITS_1 = d2xx.FT_STOP_BITS_1;
 const FT_PARITY_NONE = d2xx.FT_PARITY_NONE;
 const FT_PURGE_RX = d2xx.FT_PURGE_RX;
 const FT_PURGE_TX = d2xx.FT_PURGE_TX;
+const FT_PURGE = FT_PURGE_RX | FT_PURGE_TX;
 const FT_FLOW_RTS_CTS = d2xx.FT_FLOW_RTS_CTS;
 
 // For Single Device - Hdev_infoost Communication
@@ -20,15 +23,14 @@ export class APTManager extends EventEmitter {
     this.verbose = verbose;
     this.dev = null;
     this._connecting = false;
-    this.connected = false;
+
+    this.requests = [];
+    this._closed = false;
   }
 
-  async dev_check() {
-    return await this._dev_check();
-  }
-
-  async init_dev() {
-    return await this._init_dev();
+  /*----- Connection -----*/
+  is_connected() {
+    return !!this.dev?.is_connected;
   }
 
   async connect(dev_info) {
@@ -36,7 +38,6 @@ export class APTManager extends EventEmitter {
 
     this.dev_info = dev_info;
     this.dev = null;
-    this.connected = false;
 
     try {
       d2xx.setVIDPID(this.dev_info.VID, this.dev_info.PID);
@@ -50,9 +51,10 @@ export class APTManager extends EventEmitter {
         FT_PARITY_NONE,
       );
 
-      await this.sleep(50);
+      this.dev.setTimeouts(1000, 1000); // set the max TX and RX duration in ms
+      await sleep(50);
       await this.dev.purge(FT_PURGE_RX | FT_PURGE_TX);
-      await this.sleep(50);
+      await sleep(50);
 
       await this.dev.resetDevice();
       await this.dev.setFlowControl(FT_FLOW_RTS_CTS, 0, 0);
@@ -60,103 +62,163 @@ export class APTManager extends EventEmitter {
 
       if (await this.dev_check()) {
         await this.init_dev();
-        this.connected = true;
+        await this.write_short(HW.NO_FLASH_PROGRAMING);
       } else {
-        this.connected = false;
         this.dev = null;
       }
+    } catch (e) {
+      console.log(e.message);
     } finally {
       this._connecting = false;
       return;
     }
   }
 
-  // Protocol Helpers
-  hdrOnly(id, p1 = 0, p2 = 0, d = DEST_USB, s = SRC_HOST) {
-    const b = Buffer.alloc(6);
-    b.writeUInt16LE(id, 0); // bytes 0–1: message ID (LE)
-    b[2] = p1 & 0xff; // byte 2: param1
-    b[3] = p2 & 0xff; // byte 3: param2
-    b[4] = d & 0xff; // byte 4: destination
-    b[5] = s & 0xff; // byte 5: source
-    return b;
+  async init_dev() {
+    return await this._init_dev();
   }
 
-  hdrWithData(id, data, d = DEST_USB, s = SRC_HOST) {
-    const b = Buffer.alloc(6);
-    b.writeUInt16LE(id, 0);
-    b.writeUInt16LE(data.length, 2);
-    b[4] = (d | 0x80) & 0xff; // MSB set => data following
-    b[5] = s & 0xff;
-    return Buffer.concat([b, data]);
+  async dev_check() {
+    return await this._dev_check();
+  }
+  async close() {
+    this.log("Closing");
+    this._closed = true; // lets the loop wind down
+    this.dev?.close();
   }
 
+  /*----- Read & Write -----*/
   async readExact(n, timeoutMs = 1000) {
     const out = Buffer.alloc(n);
     let off = 0;
     const end = Date.now() + timeoutMs;
-    while (off < n) {
-      if (Date.now() > end) throw new Error(`read timeout ${off}/${n}`);
-      const resp = await this.dev.read(n - off);
-
-      let chunk = Buffer.isBuffer(resp) ? resp : Buffer.from(resp || []);
-
+    while (off < n && !this._closed) {
+      // if (Date.now() > end) throw new Error(`timeout ${off}/${n}`);
+      if (Date.now() > end) return out;
+      const chunk = Buffer.from(await this.dev.read(n - off));
       if (chunk.length) {
         chunk.copy(out, off);
         off += chunk.length;
-      } else await new Promise((r) => setTimeout(r, 5));
+      } else {
+        await sleep(5);
+      }
     }
     return out;
   }
+async  waitUntil(header, timeoutMs = 1000) {
+  if (!Buffer.isBuffer(header)) throw new TypeError("header must be a Buffer");
+  if (header.length === 0) throw new Error("header must not be empty");
 
-  async recvOne(timeoutMs = 1000) {
-    const hdr = await this.readExact(6, timeoutMs);
-    const msgId = hdr.readUInt16LE(0);
-    const hasData = (hdr.readUInt8(4) & 0x80) !== 0;
-    let data = Buffer.alloc(0);
-    if (hasData) {
-      const len = hdr.readUInt16LE(2);
-      data = await this.readExact(len, timeoutMs);
+  const deadline = Date.now() + timeoutMs;
+  const winLen = header.length;
+
+  const window = Buffer.allocUnsafe(winLen);
+  let filled = 0;
+
+  while (!this._closed) {
+    if (Date.now() > deadline) {
+      return false; // timeout
     }
-    return { msgId, hdr, data };
+
+    const chunk = Buffer.from(await this.dev.read(1));
+    if (chunk.length === 0) {
+      await sleep(50);
+      continue;
+    }
+    const byte = chunk[0];
+
+    if (filled < winLen) {
+      window[filled++] = byte;
+      if (filled < winLen) continue; // not enough to compare yet
+    } else {
+      window.copy(window, 0, 1);
+      window[winLen - 1] = byte;
+    }
+
+    if (window.equals(header)) {
+      return true; // match!
+    }
   }
 
-  async waitFor(wantedIds, timeoutMs = 30000) {
-    const wanted = new Set(wantedIds);
-    const end = Date.now() + timeoutMs;
-    for (;;) {
-      const left = end - Date.now();
-      if (left <= 0) throw new Error("waitFor timeout");
+  return false; // closed
+}
+
+
+  async write_short(id, p1 = 0, p2 = 0, d = DEST_USB, s = SRC_HOST) {
+    const buf = hdr_short(id, p1, p2, d, s);
+    const res = await this.dev.write(buf);
+
+    // this.log(`Wrote ${res} Bytes`);
+    // console.log(buf);
+  }
+
+  async write_long(id, data, d = DEST_USB, s = SRC_HOST) {
+    const buf = hdr_w_data(id, data, d, s);
+    const res = await this.dev.write(buf);
+
+    // this.log(`Wrote ${res} Bytes`);
+    // console.log(buf);
+  }
+
+  async purge() {
+    await this.dev.purge(FT_PURGE);
+  }
+
+  /*----- Communication Loop-----*/
+  start_comm() {
+    (async () => {
       try {
-        const m = await this.recvOne(Math.max(50, left));
-        if (wanted.has(m.msgId)) return m;
-        // ignore 0x0481 periodic status frames here
+        let counter = 0;
+        while (!this._closed) {
+          // this.log(`Counter: ${counter}, NumReq: ${this.requests.length}`);
+          if (this.requests.length > 0) {
+            await this.process_request();
+          } else {
+            await this.process_regular();
+          }
+          counter++;
+
+          await sleep(50);
+        }
       } catch (e) {
-        if (/timeout/i.test(String(e))) continue;
-        throw e;
+        console.error("start_comm loop error:", e);
+      } finally {
       }
-    }
+    })();
   }
 
-  wordLE(n) {
-    const b = Buffer.alloc(2);
-    b.writeUInt16LE(n >>> 0, 0);
-    return b;
-  }
-  longLE(n) {
-    const b = Buffer.alloc(4);
-    b.writeInt32LE(n | 0, 0);
-    return b;
+  add_to_requests(req) {
+    this.requests.push(req);
   }
 
-  async sleep(ms) {
-    // this.log(`Sleeping for ${ms} ms`);
-    return await new Promise((res) => setTimeout(res, ms));
+  async process_request() {
+    const req = this.requests.shift();
+    await this._process_request(req);
   }
 
+  async process_regular() {
+    await this._process_regular();
+    return;
+  }
+
+  /*---- Utility ----*/
   log(msg) {
     if (this.verbose >= 2) {
       console.log(`[APTManager]: ${msg}`);
     }
+  }
+
+  /*----- Abstract -----*/
+  async _init_dev() {
+    return true;
+  }
+  async _dev_check() {
+    return await true;
+  }
+  async _process_request() {
+    return;
+  }
+  async _process_regular() {
+    return;
   }
 }
