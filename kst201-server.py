@@ -1,41 +1,32 @@
-if __name__ == '__main__':
+if __name__ == "__main__":
     import json
     from src.KST201Manager import KST201Manager
     from src.SocketManager import SocketManager
     import argparse, sys, socket
 
-    with open("config.json", "r", encoding="utf-8") as f:
-        dev_info = json.load(f)
-        dev_info['VID'] = int(dev_info['VID'],16)
-        dev_info['PID'] = int(dev_info['PID'],16)
-        dev_info['SERIAL'] = int(dev_info['SERIAL'])
-
-    print( dev_info )
-
-
     parser = argparse.ArgumentParser()
-    parser.add_argument("--host", help="HOST")
-    parser.add_argument("-p", "--port", type=int, help="PORT")
-    parser.add_argument("-d", "--dev", action='store_true', help="Dev Mode (Faux Device)")
+    parser.add_argument(
+        "-d", "--dev", action="store_true", help="Dev Mode (Faux Device)"
+    )
     args = parser.parse_args()
 
-    if args.host is None:
-        HOST = "127.0.0.1"  # Localhost
-    else:
-        HOST = args.host
-
-    if args.port is None:
-        PORT = 48106
-    else:
-        PORT = args.port
-
     DEV = args.dev
-
     if DEV:
         from src.DummyKST import DummyKST
+
         mgr = DummyKST()
     else:
         mgr = KST201Manager()
+
+    with open("config.json", "r", encoding="utf-8") as f:
+        config = json.load(f)
+        dev_info = {
+            "VID": int(config["VID"], 16),
+            "PID": int(config["PID"], 16),
+            "SERIAL": int(config["SERIAL"]),
+        }
+        HOST = config["HOST"]
+        PORT = int(config["PORT"])
 
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
@@ -48,11 +39,11 @@ if __name__ == '__main__':
             while True:
                 try:
                     conn, addr = server_socket.accept()
-                    mgr.connect( dev_info )
+                    mgr.connect(dev_info)
                 except KeyboardInterrupt:
                     print("\nShutting down server...")
                     break
-                
+
                 with conn:
                     socket_manager = SocketManager(conn, mgr)
                     print(f"Connected by {addr}")
@@ -62,7 +53,7 @@ if __name__ == '__main__':
                             if not mgr.is_connected():
                                 socket_manager.closing = True
                                 break
-                            
+
                             socket_manager.routine()
                     except KeyboardInterrupt:
                         print("\nInterrupted. Closing connection...")
@@ -71,7 +62,6 @@ if __name__ == '__main__':
                         if mgr is not None:
                             mgr.disconnect()
                         print(f"Disconnected: {addr}")
-
 
     except KeyboardInterrupt:
         print("\nServer terminated by user.")
