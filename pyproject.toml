@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kst201-server"
+version = "0.1.0"
+description = "TCP control server for the Thorlabs KST201 motor stage (real and simulated)."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [
+  { name = "Suk Hyun Sung", email = "sukhsung@umich.edu" }
+]
+
+dependencies = [
+  "pyftdi>=0.55",
+  "typing-extensions>=4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "black>=24.0",
+  "ruff>=0.6",
+  "mypy>=1.9",
+]
+
+[project.scripts]
+kst201-server = "kst201_server.__main__:main"

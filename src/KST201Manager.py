@@ -71,8 +71,8 @@ class KST201Manager(APTManager):
         resp = self.wait_until(self.GET_STATUSUPDATE, 60)
         if resp:
             data = self.read(28)
-            pos = int.from_bytes(data[2:10], "little", signed=True)
-            stat = int.from_bytes(data[10:28], "little", signed=False)
+            pos = int.from_bytes(data[2:6], "little", signed=True)
+            stat = int.from_bytes(data[10:14], "little", signed=False)
 
             status = parseStatus(stat)
             status["position"] = pos
@@ -144,11 +144,15 @@ class KST201Manager(APTManager):
 
             # 3) If wait is finished check for status
             if matched is None:
+                print("No Match")
+                self.purge()
                 sleep(1)
                 self.get_status(emit=True)
             elif matched is MOT_MOVE_HOMED:
+                print("Homed")
                 self.get_status(emit=True)
             elif matched is MOT_MOVE_COMPLETED or matched is MOT_MOVE_STOPPED:
+                print("Matched")
                 data = self._read_exact(14, t=1.0)
                 position = int.from_bytes(data[2:6], "little", signed=True)
                 stat_raw = int.from_bytes(data[10:14], "little", signed=False)
@@ -156,6 +160,7 @@ class KST201Manager(APTManager):
                 status["position"] = position
                 self.out_msg.append(status)
             else:
+                self.purge()
                 sleep(1)
                 self.get_status(emit=True)
 

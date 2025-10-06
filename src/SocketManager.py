@@ -68,3 +68,10 @@ class SocketManager:
         s = json.dumps(obj) + "\n"  # Object in string
         print("Sending: " + s)
         self.connection.sendall(s.encode())
+
+    def send_json(self, obj):
+        try:
+            s = json.dumps(obj, separators=(",", ":"), ensure_ascii=False)
+            self.connection.sendall((s + "\n").encode("utf-8"))
+        except (BrokenPipeError, ConnectionResetError):
+            self.closing = True
