@@ -1,0 +1,81 @@
+if __name__ == '__main__':
+    import json
+    from src.KST201Manager import KST201Manager
+    from src.SocketManager import SocketManager
+    import argparse, sys, socket
+
+    with open("config.json", "r", encoding="utf-8") as f:
+        dev_info = json.load(f)
+        dev_info['VID'] = int(dev_info['VID'],16)
+        dev_info['PID'] = int(dev_info['PID'],16)
+        dev_info['SERIAL'] = int(dev_info['SERIAL'])
+
+    print( dev_info )
+
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--host", help="HOST")
+    parser.add_argument("-p", "--port", type=int, help="PORT")
+    parser.add_argument("-d", "--dev", action='store_true', help="Dev Mode (Faux Device)")
+    args = parser.parse_args()
+
+    if args.host is None:
+        HOST = "127.0.0.1"  # Localhost
+    else:
+        HOST = args.host
+
+    if args.port is None:
+        PORT = 48106
+    else:
+        PORT = args.port
+
+    DEV = args.dev
+
+    if DEV:
+        from src.DummyKST import DummyKST
+        mgr = DummyKST()
+    else:
+        mgr = KST201Manager()
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
+            server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            server_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, True)
+            server_socket.bind((HOST, PORT))
+            server_socket.listen()
+            print(f"Server listening on {HOST}:{PORT}...")
+
+            while True:
+                try:
+                    conn, addr = server_socket.accept()
+                    mgr.connect( dev_info )
+                except KeyboardInterrupt:
+                    print("\nShutting down server...")
+                    break
+                
+                with conn:
+                    socket_manager = SocketManager(conn, mgr)
+                    print(f"Connected by {addr}")
+                    try:
+                        while not socket_manager.closing:
+                            ## Check for Connection
+                            if not mgr.is_connected():
+                                socket_manager.closing = True
+                                break
+                            
+                            socket_manager.routine()
+                    except KeyboardInterrupt:
+                        print("\nInterrupted. Closing connection...")
+                        break
+                    finally:
+                        if mgr is not None:
+                            mgr.disconnect()
+                        print(f"Disconnected: {addr}")
+
+
+    except KeyboardInterrupt:
+        print("\nServer terminated by user.")
+    except Exception as e:
+        print(f"Server error: {e}")
+    finally:
+        sys.exit(0)

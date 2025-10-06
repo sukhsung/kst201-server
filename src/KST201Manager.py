@@ -1,8 +1,9 @@
-from APTManager import APTManager
 from time import sleep
-from util import hdr_long, hdr_short, hdr_with_data
 from datetime import datetime
-from status import parseStatus
+
+from src.APTManager import APTManager
+from src.util import hdr_long, hdr_short
+from src.status import parseStatus
 
 HW_REQ_INFO = 0x0005
 HW_GET_INFO = 0x0006
@@ -31,31 +32,43 @@ class KST201Manager(APTManager):
         self.GET_STATUSUPDATE = hdr_long( MOT_GET_STATUSUPDATE, 28, HOST, USB)
         self.MOVE_HOMED = hdr_short( MOT_MOVE_HOMED,1,0,HOST,USB)
         self.MOVE_COMPLETED = hdr_long( MOT_MOVE_COMPLETED,14,HOST,USB)
+        self.MOVE_STOPPED = hdr_long( MOT_MOVE_ABSOLUTE,14,HOST,USB)
+
+        
 
 
     def _dev_check(self):
-        serial = self.get_serial()
+        info = self.get_info()
 
-        if (serial == self.dev_info['SERIAL']) :
+        print( info )
+        print( info['model'])
+        print( "KST201")
+        print( info['model'] == "KST201")
+
+        if (info['model'] == "KST201") :
             print( "dev_check passed")
             return True
         else :
             print( "dev_check failed")
             return False
         
-    def get_serial(self):
+    def get_info(self):
         self.purge()
         self.write_short( HW_REQ_INFO )
         sleep( 0.3 )
-        resp = self.read( 6 )
-        if (resp== self.GET_INFO) :
+
+        resp = self.wait_until( self.GET_INFO, 60) 
+        if (resp) :
             data = self.read(84)
             serial = int.from_bytes(data[0:4], 'little', signed=False)
-            print( f"SERIAL: {serial}" )
+            model = data[4:12].decode().rstrip('\x00')
+            print( f"MODEL: {model}, SERIAL: {serial}" )
         else :
             serial = -1
+            model = -1
             print( f"INVALID SERIAL: {serial}" )
-        return serial
+
+        return {'serial':serial, 'model':model}
 
 
     def get_status(self):
@@ -63,8 +76,8 @@ class KST201Manager(APTManager):
         self.write_short( MOT_REQ_STATUSUPDATE )
         sleep(0.3)
 
-        stat = self.wait_until( self.GET_STATUSUPDATE, 60)
-        if (stat):
+        resp = self.wait_until( self.GET_STATUSUPDATE, 60)
+        if (resp):
             data = self.read(28)
             pos = int.from_bytes(data[2:10],'little', signed=True)
             stat = int.from_bytes(data[10:28],'little', signed=False)

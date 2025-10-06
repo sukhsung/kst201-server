@@ -1,5 +1,5 @@
 from pyftdi.ftdi import Ftdi
-from util import hdr_long, hdr_short, hdr_with_data
+from src.util import hdr_long, hdr_short
 import time
 
 
@@ -12,7 +12,6 @@ HW_NO_FLASH_PROGRAMMING = 0x0018
 
 
 class APTManager:
-
     def __init__(self, verbose=2):
         self.verbose = verbose
         self.dev = None
@@ -22,14 +21,16 @@ class APTManager:
         self._closed = False
 
     def is_connected(self):
-        if (self.dev == None):
+        try: 
+            self.dev.modem_status() ## DO NOT USE dev.is_connected
+            return True
+        except: 
             return False
-        else:
-            return self.dev.is_connected
-        
+
     def disconnect( self ):
-        self.dev.close()
-        self.dev = None
+        if (self.dev != None):
+            self.dev.close()
+            self.dev = None
 
 
     def connect( self, dev_info ):
@@ -58,13 +59,15 @@ class APTManager:
             # Assert RTS
             self.dev.set_rts(True)
 
+            isValid = self.dev_check()
             # Run Device Check
-            if (self.dev_check()):
+            if isValid:
                 self.write_short(HW_NO_FLASH_PROGRAMMING)
             else:
                 self.dev = None
-        except:
+        except Exception as e:
             print( "Error during connecting")
+            print(f"An unexpected error occurred: {e}")
             self.dev = None
 
     def read(self, n, attempt=1) :

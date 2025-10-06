@@ -5,14 +5,21 @@ import argparse, sys, socket
 
 
 parser = argparse.ArgumentParser()
+parser.add_argument("--host", help="HOST")
 parser.add_argument("-p", "--port", type=int, help="PORT")
 parser.add_argument("-d", "--dev", action='store_true', help="Dev Mode (Faux Device)")
 args = parser.parse_args()
 
+if args.host is None:
+    HOST = "127.0.0.1"  # Localhost
+else:
+    HOST = args.host
 
-HOST = "127.0.0.1"  # Localhost
+if args.port is None:
+    PORT = 48106
+else:
+    PORT = args.port
 
-PORT = int(args.port)
 DEV = args.dev
 
 if DEV:
@@ -37,6 +44,7 @@ try:
             
             with conn:
                 socket_manager = SocketManager(conn, mgr)
+                mgr.connect()
                 print(f"Connected by {addr}")
                 try:
                     while not socket_manager.closing:

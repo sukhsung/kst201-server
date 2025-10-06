@@ -1,5 +1,4 @@
-from pyftdi.ftdi import Ftdi
-from util import hdr_long, hdr_short, hdr_with_data
+from util import hdr_long, hdr_short
 import time
 
 
