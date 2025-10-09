@@ -36,11 +36,11 @@ Edit `config.json` to match your hardware:
 
 ```json
 {
-  "VID": 1240,
-  "PID": 22208,
-  "SERIAL": 90876543,
-  "HOST": "127.0.0.1",
-  "PORT": 5555
+  "VID": "0x0403",
+  "PID": "0xfaf0",
+  "SERIAL": 26006611,
+  "HOST": "0.0.0.0",
+  "PORT": 48109
 }
 ```
 
