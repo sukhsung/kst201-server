@@ -50,6 +50,13 @@ Edit `config.json` to match your hardware:
 SUBSYSTEM=="usb", ATTR{idVendor}=="0403", ATTR{idProduct}=="faf0", GROUP="plugdev", MODE="0664"
 ```
 
+```bash
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+sudo adduser $USER plugdev
+newgrp plugdev
+```
+
 
 ## Running the Server
 ```bash
