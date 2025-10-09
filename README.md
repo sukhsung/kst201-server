@@ -44,6 +44,12 @@ Edit `config.json` to match your hardware:
 }
 ```
 
+## For Linux, the USB needs to be added to UDEV rules
+```
+# /etc/udev/rules.d/11-ftdi.rules
+SUBSYSTEM=="usb", ATTR{idVendor}=="0403", ATTR{idProduct}=="faf0", GROUP="plugdev", MODE="0664"
+```
+
 
 ## Running the Server
 ```bash
