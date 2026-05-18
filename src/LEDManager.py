@@ -5,6 +5,8 @@ _LED_PATHS = [
     "/sys/class/leds/ACT",
     "/sys/class/leds/led0",
     "/sys/class/leds/activity",
+    "/sys/class/leds/mmc0::",
+    "/sys/class/leds/mmc1::",
 ]
 
 
