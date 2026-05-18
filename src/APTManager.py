@@ -1,4 +1,5 @@
 from pyftdi.ftdi import Ftdi
+from pyftdi.usbtools import UsbTools
 from src.util import hdr_long, hdr_short
 from time import time, sleep
 import threading
@@ -46,6 +47,7 @@ class APTManager:
 
         self.dev_info = dev_info
         self.dev = None
+        UsbTools.flush_cache()
 
         try:
             # Open FTDI Connection
