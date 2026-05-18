@@ -4,8 +4,7 @@ set -e
 SERVICE_NAME="kst201-server"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 RUN_USER=${SUDO_USER:-$USER}
-USER_HOME=$(getent passwd "$RUN_USER" | cut -d: -f6)
-PYTHON=$USER_HOME/venv-kst/bin/python3
+PYTHON=/opt/venv-kst/bin/python3
 WORKDIR=$(pwd)
 
 echo "Installing ${SERVICE_NAME} as a systemd service..."
