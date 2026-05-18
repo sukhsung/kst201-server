@@ -3,16 +3,14 @@ set -e
 
 SERVICE_NAME="kst201-server"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
-PYTHON=$(which python3)
+PYTHON=$HOME/venv-kst/bin/python3
 WORKDIR=$(pwd)
 RUN_USER=$USER
-PYTHONPATH=$(${PYTHON} -m site --user-site)
 
 echo "Installing ${SERVICE_NAME} as a systemd service..."
 echo "  User:             ${RUN_USER}"
 echo "  WorkingDirectory: ${WORKDIR}"
 echo "  Python:           ${PYTHON}"
-echo "  PYTHONPATH:       ${PYTHONPATH}"
 
 sudo tee "${SERVICE_FILE}" > /dev/null <<EOF
 [Unit]
@@ -23,7 +21,6 @@ After=network.target
 Type=simple
 User=${RUN_USER}
 WorkingDirectory=${WORKDIR}
-Environment=PYTHONPATH=${PYTHONPATH}
 ExecStart=${PYTHON} kst201-server.py
 Restart=on-failure
 RestartSec=5
