@@ -2,7 +2,6 @@ if __name__ == "__main__":
     import json, time
     from src.KST201Manager import KST201Manager
     from src.SocketManager import SocketManager
-    from src.LEDManager import LEDManager
     import argparse, sys, socket
 
     parser = argparse.ArgumentParser()
@@ -29,10 +28,8 @@ if __name__ == "__main__":
         HOST = config["HOST"]
         PORT = int(config["PORT"])
 
-    led = LEDManager()
     try:
         while True:
-            led.set_usb_wait()
             print("Connecting to USB device...")
             while True:
                 mgr.connect(dev_info)
@@ -42,7 +39,6 @@ if __name__ == "__main__":
                 print("USB device not found. Retrying in 10 seconds...")
                 time.sleep(10)
 
-            led.set_tcp_wait()
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
                 server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 server_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, True)
@@ -62,7 +58,6 @@ if __name__ == "__main__":
                     except KeyboardInterrupt:
                         raise
 
-                    led.set_connected()
                     with conn:
                         socket_manager = SocketManager(conn, mgr)
                         print(f"Connected by {addr}")
@@ -83,12 +78,9 @@ if __name__ == "__main__":
 
                     if not mgr.is_connected():
                         print("USB device disconnected. Closing server...")
-                        led.set_usb_wait()
                         break
-                    led.set_tcp_wait()
 
     except KeyboardInterrupt:
         print("\nServer terminated by user.")
     finally:
-        led.stop()
         sys.exit(0)
