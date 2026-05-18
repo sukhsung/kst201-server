@@ -29,7 +29,7 @@ if __name__ == "__main__":
         HOST = config["HOST"]
         PORT = int(config["PORT"])
 
-    led = LEDManager(pin=16)
+    led = LEDManager()
     try:
         while True:
             led.set_usb_wait()
